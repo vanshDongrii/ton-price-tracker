@@ -1,0 +1,17 @@
+services:
+  ton-price-tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ton_price_tracker_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONIOENCODING=utf-8
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

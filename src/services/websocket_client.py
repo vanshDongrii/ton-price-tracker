@@ -17,7 +17,7 @@ class CryptoWebSocketClient:
 
     def __init__(
         self,
-        provider: str = "whitebit",
+        provider: str = "binance",
         symbol_pair: str = "TONUSDT",
         on_price_update: Optional[PriceCallback] = None,
         initial_backoff_seconds: float = 1.0,
@@ -90,8 +90,8 @@ class CryptoWebSocketClient:
             return url, sub
 
         if self.provider == "binance":
-            # Direct trade stream for TONUSDT
-            url = "wss://stream.binance.com:9443/ws/tonusdt@trade"
+            # Direct trade stream for configured pair
+            url = f"wss://stream.binance.com:9443/ws/{self.symbol_pair.lower()}@trade"
             return url, None
 
         # Default fallback

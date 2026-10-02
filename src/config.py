@@ -25,8 +25,8 @@ class Settings(BaseSettings):
 
     # Crypto Provider
     crypto_api_provider: str = Field(
-        default="whitebit",
-        description="Crypto provider for TON/USDT data (whitebit, binance, coingecko)",
+        default="binance",
+        description="Crypto provider for TON/USDT data (binance, whitebit, coingecko)",
     )
     crypto_api_key: Optional[str] = Field(
         default=None,
@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     @field_validator("crypto_api_provider", mode="before")
     @classmethod
     def normalize_crypto_provider(cls, v: str) -> str:
-        return (v or "whitebit").strip().lower()
+        return (v or "binance").strip().lower()
 
     @field_validator("fx_api_provider", mode="before")
     @classmethod

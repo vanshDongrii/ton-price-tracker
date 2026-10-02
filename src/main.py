@@ -2,9 +2,14 @@
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from typing import Optional
+
+# Ensure project root is in sys.path when executed directly as a script
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from telegram.ext import (
     Application,
     ApplicationBuilder,

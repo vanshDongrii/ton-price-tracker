@@ -17,7 +17,7 @@ class TONMarketService:
 
     def __init__(
         self,
-        provider: str = "whitebit",
+        provider: str = "binance",
         symbol_pair: str = "TONUSDT",
         stale_threshold_seconds: int = 15,
         api_timeout_seconds: float = 5.0,
@@ -67,6 +67,7 @@ class TONMarketService:
             self._http_client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.api_timeout_seconds),
                 headers={"User-Agent": "TONPriceTrackerBot/1.0"},
+                follow_redirects=True,
             )
 
         logger.info("Starting TONMarketService...")
@@ -91,12 +92,17 @@ class TONMarketService:
         if not self._http_client:
             raise RuntimeError("HTTP client not initialized")
 
-        url = "https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT"
+        url = f"https://api.binance.com/api/v3/ticker/price?symbol={self.symbol_pair}"
         resp = await self._http_client.get(url)
         if resp.status_code >= 400:
             resp.raise_for_status()
         data = resp.json()
-        return float(data["price"])
+        if not isinstance(data, dict) or "price" not in data:
+            raise ValueError(f"Unexpected Binance response format: {data}")
+        price = float(data["price"])
+        if price <= 0:
+            raise ValueError(f"Invalid Binance price: {price}")
+        return price
 
     async def _fetch_coingecko_rest(self) -> float:
         """Fetch latest price from CoinGecko REST API."""
@@ -108,7 +114,10 @@ class TONMarketService:
         if resp.status_code >= 400:
             resp.raise_for_status()
         data = resp.json()
-        return float(data["the-open-network"]["usd"])
+        price = float(data["the-open-network"]["usd"])
+        if price <= 0:
+            raise ValueError(f"Invalid CoinGecko price: {price}")
+        return price
 
     async def _fetch_rest_fallback(self) -> float:
         """Execute REST fallback across available REST endpoints with deduplication."""
@@ -187,6 +196,9 @@ class TONMarketService:
             is_fresh,
             force_rest,
         )
+
+        if force_rest:
+            await self._rest_cache.invalidate("ton_rest_fallback")
 
         try:
             fallback_price = await self._fetch_rest_fallback()

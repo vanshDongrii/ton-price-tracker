@@ -36,6 +36,7 @@ class ExchangeRateService:
             self._http_client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.api_timeout_seconds),
                 headers={"User-Agent": "TONPriceTrackerBot/1.0"},
+                follow_redirects=True,
             )
         return self._http_client
 
@@ -54,7 +55,11 @@ class ExchangeRateService:
             resp.raise_for_status()
         data = resp.json()
 
+        if "rates" not in data or "INR" not in data["rates"]:
+            raise ValueError(f"Unexpected ExchangeRate-API response: {data}")
         rate = float(data["rates"]["INR"])
+        if rate <= 0:
+            raise ValueError(f"Invalid ExchangeRate-API rate: {rate}")
         ts_unix = data.get("time_last_update_unix")
         if ts_unix:
             ts = datetime.fromtimestamp(ts_unix, tz=timezone.utc)
@@ -72,7 +77,11 @@ class ExchangeRateService:
             resp.raise_for_status()
         data = resp.json()
 
+        if "rates" not in data or "INR" not in data["rates"]:
+            raise ValueError(f"Unexpected Frankfurter response: {data}")
         rate = float(data["rates"]["INR"])
+        if rate <= 0:
+            raise ValueError(f"Invalid Frankfurter rate: {rate}")
         ts = datetime.now(timezone.utc)
         return rate, ts, "Frankfurter (ECB)"
 
@@ -85,7 +94,11 @@ class ExchangeRateService:
             resp.raise_for_status()
         data = resp.json()
 
+        if "tether" not in data or "inr" not in data["tether"]:
+            raise ValueError(f"Unexpected CoinGecko USDT/INR response: {data}")
         rate = float(data["tether"]["inr"])
+        if rate <= 0:
+            raise ValueError(f"Invalid CoinGecko USDT/INR rate: {rate}")
         ts = datetime.now(timezone.utc)
         return rate, ts, "CoinGecko (USDT/INR)"
 

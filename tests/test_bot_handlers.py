@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 from telegram import Chat, Message, Update, User
+from telegram.constants import ParseMode
 
 from src.bot.handlers import BotHandlers, parse_conversion_query, parse_ton_input
 from src.bot.live_manager import LiveModeManager
@@ -69,7 +70,18 @@ def test_parse_conversion_query():
     assert parse_conversion_query("₹500") == (500.0, "INR")
     assert parse_conversion_query("$50") == (50.0, "USDT")
     assert parse_conversion_query("50 USDT") == (50.0, "USDT")
-    assert parse_conversion_query("1000 GRAM") == (1000.0, "GRAM")
+    assert parse_conversion_query("1t") == (1.0, "TON")
+    assert parse_conversion_query("1g") == (1.0, "TON")
+    assert parse_conversion_query("1 gram") == (1.0, "TON")
+    assert parse_conversion_query("1u") == (1.0, "USDT")
+    assert parse_conversion_query("1usdt") == (1.0, "USDT")
+    assert parse_conversion_query("1$") == (1.0, "USDT")
+    assert parse_conversion_query("100s") == (100.0, "STARS")
+    assert parse_conversion_query("100star") == (100.0, "STARS")
+    assert parse_conversion_query("100r") == (100.0, "INR")
+    assert parse_conversion_query("100rs") == (100.0, "INR")
+    assert parse_conversion_query("100₹") == (100.0, "INR")
+    assert parse_conversion_query("1000 GRAM") == (1000.0, "TON")
     assert parse_conversion_query("100 STARS") == (100.0, "STARS")
     assert parse_conversion_query("1k stars") == (1000.0, "STARS")
     assert parse_conversion_query("2.5k stars") == (2500.0, "STARS")
@@ -127,7 +139,7 @@ async def test_start_command(mock_handlers):
     call_kwargs = message.reply_text.call_args[1]
     text = call_kwargs["text"]
     assert "Pavel Kurs" in text
-    assert "TON/GRAM, USDT, Stars, and inr" in text
+    assert "converter for TON, USDT, Stars, and INR" in text
     assert "select a currency using the button below" in text
     assert call_kwargs.get("reply_markup") is not None
 
@@ -250,13 +262,14 @@ async def test_text_message_handler_conversions(mock_handlers):
     call_kwargs = message.reply_text.call_args[1]
     text = call_kwargs["text"]
     expected_10 = (
-        "10 TON =\n"
-        "USDT: 21.8450\n"
-        "GRAM: 20,000.00\n"
-        "STARS: 1,680\n"
-        "INR: ₹1,933.30"
+        "🔄 Converting 10 TON\n"
+        "*TON 💎*: 10\n"
+        "*USDT 💵*: 21.8450\n"
+        "*STARS ⭐*: 1,680\n"
+        "*INR 🇮🇳*: 1,933.30"
     )
     assert text == expected_10
+    assert call_kwargs.get("parse_mode") == ParseMode.MARKDOWN
     assert call_kwargs.get("reply_markup") is None
 
     # 2. Test '10 TON'
@@ -270,29 +283,29 @@ async def test_text_message_handler_conversions(mock_handlers):
     message.text = "10.5"
     await mock_handlers.text_message_handler(update, context)
     call_kwargs = message.reply_text.call_args[1]
-    assert "10.5 TON =" in call_kwargs["text"]
+    assert "🔄 Converting 10.5 TON" in call_kwargs["text"]
     assert call_kwargs.get("reply_markup") is None
 
     # 4. Test '0.25 TON'
     message.text = "0.25 TON"
     await mock_handlers.text_message_handler(update, context)
     call_kwargs = message.reply_text.call_args[1]
-    assert "0.25 TON =" in call_kwargs["text"]
+    assert "🔄 Converting 0.25 TON" in call_kwargs["text"]
     assert call_kwargs.get("reply_markup") is None
 
     # 5. Test '500 inr'
     message.text = "500 inr"
     await mock_handlers.text_message_handler(update, context)
     call_kwargs = message.reply_text.call_args[1]
-    assert "500 INR =" in call_kwargs["text"]
-    assert "TON:" in call_kwargs["text"]
+    assert "🔄 Converting 500 INR" in call_kwargs["text"]
+    assert "*TON 💎*:" in call_kwargs["text"]
 
     # 6. Test '1k stars'
     message.text = "1k stars"
     await mock_handlers.text_message_handler(update, context)
     call_kwargs = message.reply_text.call_args[1]
-    assert "1,000 STARS =" in call_kwargs["text"]
-    assert "TON:" in call_kwargs["text"]
+    assert "🔄 Converting 1,000 STARS" in call_kwargs["text"]
+    assert "*TON 💎*:" in call_kwargs["text"]
 
 
 @pytest.mark.asyncio

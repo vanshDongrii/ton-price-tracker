@@ -145,7 +145,6 @@ def test_format_conversion_message():
         "TON": 10.0,
         "USDT": 15.49,
         "INR": 1492.50,
-        "GRAM": 20827.50,
         "STARS": 1192.30,
     }
 
@@ -153,6 +152,27 @@ def test_format_conversion_message():
     assert "💎 *10 TON*" in msg
     assert "≈ $15.4900 USDT" in msg
     assert "≈ ₹1,492.50 INR" in msg
-    assert "≈ 20,827.50 GRAM" in msg
     assert "≈ 1,192 Stars" in msg
+    assert "GRAM" not in msg
+
+
+def test_format_multi_conversion_message_excludes_gram():
+    """Show supported currencies without exposing GRAM conversion."""
+    from src.bot.messages import format_multi_conversion_response
+
+    conversions = {
+        "TON": 0.0005,
+        "USDT": 1.5527,
+        "INR": 149.65,
+        "STARS": 104.0,
+    }
+
+    msg = format_multi_conversion_response(1.0, "USDT", conversions)
+    assert msg == (
+        "🔄 Converting 1 USDT\n"
+        "*USDT 💵*: 1\n"
+        "*TON 💎*: 0.0005\n"
+        "*STARS ⭐*: 104\n"
+        "*INR 🇮🇳*: 149.65"
+    )
 

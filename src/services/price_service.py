@@ -181,7 +181,7 @@ class PriceService:
     ) -> dict[str, Optional[float]]:
         """Calculate conversions for a given amount from from_asset across all supported assets.
 
-        Supported assets: 'TON', 'USDT', 'INR', 'GRAM', 'STARS'.
+        Supported assets: 'TON', 'USDT', 'INR', 'STARS'.
         Returns dictionary of {asset: converted_amount_or_None}.
         """
         asset = from_asset.upper().strip()
@@ -197,9 +197,6 @@ class PriceService:
         elif asset == "INR":
             if snapshot.ton_inr and snapshot.ton_inr > 0:
                 ton_amount = amount / snapshot.ton_inr
-        elif asset in ("GRAM", "GRM"):
-            if snapshot.ton_gram and snapshot.ton_gram > 0:
-                ton_amount = amount / snapshot.ton_gram
         elif asset in ("STARS", "STAR", "TELEGRAM_STARS"):
             if snapshot.ton_stars and snapshot.ton_stars > 0:
                 ton_amount = amount / snapshot.ton_stars
@@ -209,7 +206,6 @@ class PriceService:
                 "TON": None,
                 "USDT": None,
                 "INR": None,
-                "GRAM": None,
                 "STARS": None,
             }
 
@@ -218,6 +214,5 @@ class PriceService:
             "TON": round(ton_amount, 4) if asset != "TON" else amount,
             "USDT": round(ton_amount * snapshot.ton_usdt, 4) if snapshot.ton_usdt else None,
             "INR": round(ton_amount * snapshot.ton_inr, 2) if snapshot.ton_inr else None,
-            "GRAM": round(ton_amount * snapshot.ton_gram, 2) if snapshot.ton_gram else None,
             "STARS": round(ton_amount * snapshot.ton_stars, 2) if snapshot.ton_stars else None,
         }

@@ -57,15 +57,13 @@ def normalize_currency_symbol(curr_str: Optional[str]) -> Optional[str]:
     if not curr_str:
         return "TON"
     c = curr_str.upper().strip()
-    if c in ("TON", "TONCOIN"):
+    if c in ("TON", "TONCOIN", "T", "G", "GRAM"):
         return "TON"
-    if c in ("USDT", "USD"):
+    if c in ("USDT", "USD", "U", "$"):
         return "USDT"
-    if c in ("INR", "RS", "RUPEE", "RUPEES"):
+    if c in ("INR", "RS", "R", "RUPEE", "RUPEES", "₹"):
         return "INR"
-    if c in ("GRAM", "GRM"):
-        return "GRAM"
-    if c in ("STARS", "STAR", "⭐"):
+    if c in ("STARS", "STAR", "S", "⭐"):
         return "STARS"
     return None
 
@@ -75,12 +73,15 @@ def parse_conversion_query(text: str) -> Optional[tuple[float, str]]:
 
     Examples:
         '10 TON' -> (10.0, 'TON')
+        '1t', '1g', or '1 gram' -> (1.0, 'TON')
         '100 ton' -> (100.0, 'TON')
         '500 INR' -> (500.0, 'INR')
         '₹500' -> (500.0, 'INR')
         '$50' -> (50.0, 'USDT')
+        '1u' or '1$' -> (1.0, 'USDT')
         '50 USDT' -> (50.0, 'USDT')
-        '1000 GRAM' -> (1000.0, 'GRAM')
+        '100s' -> (100.0, 'STARS')
+        '100r' or '100₹' -> (100.0, 'INR')
         '100 STARS' -> (100.0, 'STARS')
         '1k stars' -> (1000.0, 'STARS')
         '50 ⭐' -> (50.0, 'STARS')
@@ -101,7 +102,7 @@ def parse_conversion_query(text: str) -> Optional[tuple[float, str]]:
         return (val, "USDT") if val is not None else None
 
     # Pattern 1: '<amount_with_suffix> [currency]' (e.g. '100 ton', '1k stars', '500 inr', '10')
-    pattern1 = r"^\s*([0-9]+(?:[\.,][0-9]+)?[kKmMbB]?)\s*([a-zA-Z⭐]+)?\s*$"
+    pattern1 = r"^\s*([0-9]+(?:[\.,][0-9]+)?[kKmMbB]?)\s*([a-zA-Z⭐$₹]+)?\s*$"
     match1 = re.match(pattern1, clean)
     if match1:
         amt_str, curr_str = match1.groups()
@@ -296,6 +297,7 @@ class BotHandlers:
 
             await update.message.reply_text(
                 text=reply_text,
+                parse_mode=ParseMode.MARKDOWN,
             )
         except Exception as e:
             logger.error("Error in text_message_handler conversion: %s", e)
@@ -322,12 +324,15 @@ class BotHandlers:
             elif asset == "INR":
                 asset_label = "🇮🇳 INR"
                 example = "500 INR or ₹500"
-            elif asset == "GRAM":
-                asset_label = "🪙 GRAM"
-                example = "1000 GRAM"
-            else:
+            elif asset == "TON":
                 asset_label = "💎 TON"
                 example = "10 TON or 10"
+            elif asset == "GRAM":
+                await query.answer("GRAM conversion is no longer supported.", show_alert=True)
+                return
+            else:
+                await query.answer("This currency is not supported.", show_alert=True)
+                return
 
             msg = (
                 f"Selected: {asset_label}\n\n"

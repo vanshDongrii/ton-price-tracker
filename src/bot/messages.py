@@ -19,7 +19,7 @@ from src.models.price_snapshot import Freshness, PriceSnapshot
 def get_welcome_message() -> str:
     """Return the welcome text for the /start command."""
     return (
-        "Hi! 💎 This is the “ Pavel Kurs ” — a converter for TON/GRAM, USDT, Stars, and inr. "
+        "Hi! 💎 This is the “ Pavel Kurs ” — a converter for TON, USDT, Stars, and INR. "
         "In private messages: select a currency using the button below and send the amount. "
         "In a chat: add the bot and type amounts like “100 ton”, “500 inr”, or “1k stars” — "
         "the bot will reply with the conversion."
@@ -122,7 +122,6 @@ def format_conversion_message(
         "TON": f"💎 *{amount:g} TON*",
         "USDT": f"💵 *${amount:g} USDT*",
         "INR": f"🇮🇳 *₹{amount:g} INR*",
-        "GRAM": f"🪙 *{amount:g} GRAM*",
         "STARS": f"⭐ *{amount:g} Telegram Stars*",
     }
     header = headers.get(from_upper, f"💱 *{amount:g} {from_upper}*")
@@ -145,10 +144,6 @@ def format_conversion_message(
         inr_val = conversions.get("INR")
         lines.append(f"≈ {format_inr(inr_val)} INR" if inr_val is not None else "≈ INR: Unavailable")
 
-    if from_upper != "GRAM":
-        gram_val = conversions.get("GRAM")
-        lines.append(f"≈ {format_gram(gram_val)}" if gram_val is not None else "≈ GRAM: Unavailable")
-
     if from_upper not in ("STARS", "STAR"):
         stars_val = conversions.get("STARS")
         lines.append(f"≈ {format_stars(stars_val)}" if stars_val is not None else "≈ Stars: Rate unavailable")
@@ -160,35 +155,8 @@ def format_ton_conversion_response(
     amount: float,
     conversions: dict[str, Optional[float]],
 ) -> str:
-    """Format TON conversion results according to user specification:
-
-    10 TON =
-    USDT: xxxx
-    GRAM: xxxx
-    STARS: xxxx
-    INR: ₹xxxx
-    """
-    amount_str = f"{amount:,.4f}".rstrip("0").rstrip(".")
-
-    usdt_val = conversions.get("USDT")
-    usdt_str = f"{usdt_val:,.4f}" if usdt_val is not None else "Unavailable"
-
-    gram_val = conversions.get("GRAM")
-    gram_str = f"{gram_val:,.2f}" if gram_val is not None else "Unavailable"
-
-    stars_val = conversions.get("STARS")
-    stars_str = f"{int(round(stars_val)):,}" if stars_val is not None else "Temporarily unavailable"
-
-    inr_val = conversions.get("INR")
-    inr_str = format_inr(inr_val) if inr_val is not None else "Unavailable"
-
-    return (
-        f"{amount_str} TON =\n"
-        f"USDT: {usdt_str}\n"
-        f"GRAM: {gram_str}\n"
-        f"STARS: {stars_str}\n"
-        f"INR: {inr_str}"
-    )
+    """Format TON conversion results using the shared currency layout."""
+    return format_multi_conversion_response(amount, "TON", conversions)
 
 
 def format_multi_conversion_response(
@@ -198,38 +166,39 @@ def format_multi_conversion_response(
 ) -> str:
     """Format conversion results for any input currency."""
     from_upper = from_asset.upper().strip()
-    if from_upper in ("TON", "TONCOIN"):
-        return format_ton_conversion_response(amount, conversions)
+    if from_upper == "TONCOIN":
+        from_upper = "TON"
+    elif from_upper in ("STAR", "TELEGRAM_STARS"):
+        from_upper = "STARS"
 
     if amount % 1 == 0:
         amount_str = f"{int(amount):,}"
     else:
         amount_str = f"{amount:,.4f}".rstrip("0").rstrip(".")
 
-    lines = [f"{amount_str} {from_upper} ="]
+    icons = {"TON": "💎", "USDT": "💵", "STARS": "⭐", "INR": "🇮🇳"}
+    lines = [f"🔄 Converting {amount_str} {from_upper}"]
 
-    # Target currencies in standard order
-    order = ["TON", "USDT", "GRAM", "STARS", "INR"]
+    lines.append(f"*{from_upper} {icons[from_upper]}*: {amount_str}")
+
+    # Show every other supported currency after the entered amount.
+    order = ["TON", "USDT", "STARS", "INR"]
     for curr in order:
-        if curr == from_upper or (curr == "STARS" and from_upper in ("STARS", "STAR")):
+        if curr == from_upper:
             continue
 
         val = conversions.get(curr)
-        if curr == "TON":
-            s = f"{val:,.4f}" if val is not None else "Unavailable"
-            lines.append(f"TON: {s}")
-        elif curr == "USDT":
-            s = f"{val:,.4f}" if val is not None else "Unavailable"
-            lines.append(f"USDT: {s}")
-        elif curr == "GRAM":
-            s = f"{val:,.2f}" if val is not None else "Unavailable"
-            lines.append(f"GRAM: {s}")
+
+        if val is None:
+            value_str = "Temporarily unavailable" if curr == "STARS" else "Unavailable"
+        elif curr in ("TON", "USDT"):
+            value_str = f"{val:,.4f}"
         elif curr == "STARS":
-            s = f"{int(round(val)):,}" if val is not None else "Temporarily unavailable"
-            lines.append(f"STARS: {s}")
-        elif curr == "INR":
-            s = format_inr(val) if val is not None else "Unavailable"
-            lines.append(f"INR: {s}")
+            value_str = f"{int(round(val)):,}"
+        else:
+            value_str = format_inr(val)[1:]
+
+        lines.append(f"*{curr} {icons[curr]}*: {value_str}")
 
     return "\n".join(lines)
 
@@ -239,7 +208,7 @@ def get_convert_menu_message() -> str:
     return (
         "💱 *Currency Conversion*\n\n"
         "Select the currency you want to convert from, or type an amount directly in chat "
-        "(e.g. `10 TON`, `100 INR`, `$20 USDT`, `1000 GRAM`, or `50 STARS`):"
+        "(e.g. `10 TON`, `100 INR`, `$20 USDT`, or `50 STARS`):"
     )
 
 
@@ -250,7 +219,6 @@ def get_convert_prompt_message(asset: str) -> str:
         "TON": "💎",
         "USDT": "💵",
         "INR": "🇮🇳",
-        "GRAM": "🪙",
         "STARS": "⭐",
     }
     icon = icons.get(asset_upper, "💱")
@@ -264,7 +232,7 @@ def get_help_message() -> str:
     """Return the /help information message."""
     return (
         "📖 *TON Price Live — User Guide*\n\n"
-        "Enter any TON amount to see its equivalent value in USDT, GRAM, STARS, and INR.\n\n"
+        "Enter any TON amount to see its equivalent value in USDT, STARS, and INR.\n\n"
         "Examples:\n"
         "• `10`\n"
         "• `10 TON`\n"
@@ -278,7 +246,6 @@ def get_help_message() -> str:
         "• /about — Show data source information\n\n"
         "Supported Currencies:\n"
         "• USDT — Tether USD stablecoin\n"
-        "• GRAM — GRAM jetton via DEX\n"
         "• STARS — Telegram Stars\n"
         "• INR — Indian Rupee (calculated via live FX rates)\n\n"
         "All calculations use live market rates."

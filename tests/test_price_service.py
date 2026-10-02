@@ -122,36 +122,33 @@ def test_price_service_currency_conversions():
     assert res_ton["TON"] == 10.0
     assert res_ton["USDT"] == 20.0
     assert res_ton["INR"] == 2000.0
-    assert res_ton["GRAM"] == 20000.0
     assert res_ton["STARS"] == 1500.0
+    assert "GRAM" not in res_ton
 
     # 2. Convert 100 INR -> 0.5 TON
     res_inr = service.convert_currency(100.0, "INR", snapshot)
     assert res_inr["TON"] == 0.5
     assert res_inr["USDT"] == 1.0
-    assert res_inr["GRAM"] == 1000.0
     assert res_inr["STARS"] == 75.0
+    assert "GRAM" not in res_inr
 
     # 3. Convert 10 USDT -> 5 TON
     res_usdt = service.convert_currency(10.0, "USDT", snapshot)
     assert res_usdt["TON"] == 5.0
     assert res_usdt["INR"] == 1000.0
-    assert res_usdt["GRAM"] == 10000.0
     assert res_usdt["STARS"] == 750.0
+    assert "GRAM" not in res_usdt
 
-    # 4. Convert 1000 GRAM -> 0.5 TON
+    # 4. GRAM is no longer an accepted conversion input
     res_gram = service.convert_currency(1000.0, "GRAM", snapshot)
-    assert res_gram["TON"] == 0.5
-    assert res_gram["USDT"] == 1.0
-    assert res_gram["INR"] == 100.0
-    assert res_gram["STARS"] == 75.0
+    assert res_gram == {"TON": None, "USDT": None, "INR": None, "STARS": None}
 
     # 5. Convert 150 STARS -> 1 TON
     res_stars = service.convert_currency(150.0, "STARS", snapshot)
     assert res_stars["TON"] == 1.0
     assert res_stars["USDT"] == 2.0
     assert res_stars["INR"] == 200.0
-    assert res_stars["GRAM"] == 2000.0
+    assert "GRAM" not in res_stars
 
     # 6. Missing rates handled safely
     empty_snapshot = PriceSnapshot()

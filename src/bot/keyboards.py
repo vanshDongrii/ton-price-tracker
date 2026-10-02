@@ -12,7 +12,6 @@ def get_start_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🇮🇳 INR", callback_data="conv_asset_inr"),
         ],
         [
-            InlineKeyboardButton("🪙 GRAM", callback_data="conv_asset_gram"),
             InlineKeyboardButton("⭐ Stars", callback_data="conv_asset_stars"),
         ],
     ]
@@ -65,7 +64,6 @@ def get_convert_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🇮🇳 INR", callback_data="conv_asset_inr"),
         ],
         [
-            InlineKeyboardButton("🪙 GRAM", callback_data="conv_asset_gram"),
             InlineKeyboardButton("⭐ Telegram Stars", callback_data="conv_asset_stars"),
         ],
         [
@@ -111,16 +109,6 @@ def get_quick_convert_keyboard(asset: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton("₹2,500 INR", callback_data="conv_val_inr_2500"),
             InlineKeyboardButton("₹5,000 INR", callback_data="conv_val_inr_5000"),
             InlineKeyboardButton("₹10,000 INR", callback_data="conv_val_inr_10000"),
-        ]
-    elif asset_upper == "GRAM":
-        row1 = [
-            InlineKeyboardButton("500 GRAM", callback_data="conv_val_gram_500"),
-            InlineKeyboardButton("1,000 GRAM", callback_data="conv_val_gram_1000"),
-            InlineKeyboardButton("5,000 GRAM", callback_data="conv_val_gram_5000"),
-        ]
-        row2 = [
-            InlineKeyboardButton("10,000 GRAM", callback_data="conv_val_gram_10000"),
-            InlineKeyboardButton("50,000 GRAM", callback_data="conv_val_gram_50000"),
         ]
     elif asset_upper in ("STARS", "STAR"):
         row1 = [

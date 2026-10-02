@@ -60,6 +60,30 @@ def format_stars(amount: Optional[float]) -> str:
     return f"{amount:.2f} Stars"
 
 
+def format_gram(amount: Optional[float]) -> str:
+    """Format GRAM token or return 'Rate unavailable'."""
+    if amount is None:
+        return "Rate unavailable"
+    return f"{amount:,.2f} GRAM"
+
+
+def format_ton(amount: Optional[float]) -> str:
+    """Format TON amount with up to 4 decimal places."""
+    if amount is None:
+        return "Unavailable"
+    return f"{amount:.4f} TON"
+
+
+def format_timestamp_utc(dt: Optional[datetime]) -> str:
+    """Format UTC datetime into clean HH:MM:SS UTC string."""
+    if dt is None:
+        return "N/A"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    utc_dt = dt.astimezone(timezone.utc)
+    return utc_dt.strftime("%H:%M:%S UTC")
+
+
 def format_timestamp_full(dt: Optional[datetime]) -> str:
     """Format UTC datetime into human-readable IST string.
     

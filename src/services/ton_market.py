@@ -87,13 +87,37 @@ class TONMarketService:
             await self._http_client.aclose()
             self._http_client = None
 
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Return or lazily initialize httpx client."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.api_timeout_seconds),
+                headers={"User-Agent": "TONPriceTrackerBot/1.0"},
+                follow_redirects=True,
+            )
+        return self._http_client
+
+    async def _fetch_tonapi_rest(self) -> float:
+        """Fetch latest price from official TonAPI indexed market rates."""
+        client = await self._get_client()
+        url = "https://tonapi.io/v2/rates?tokens=ton&currencies=usd"
+        resp = await client.get(url)
+        if resp.status_code >= 400:
+            resp.raise_for_status()
+        data = resp.json()
+        rates = data.get("rates", {})
+        ton_data = rates.get("TON", {})
+        prices = ton_data.get("prices", {})
+        usd_price = prices.get("USD")
+        if usd_price is None or float(usd_price) <= 0:
+            raise ValueError(f"Invalid TonAPI price format: {data}")
+        return float(usd_price)
+
     async def _fetch_binance_rest(self) -> float:
         """Fetch latest price from Binance REST API."""
-        if not self._http_client:
-            raise RuntimeError("HTTP client not initialized")
-
+        client = await self._get_client()
         url = f"https://api.binance.com/api/v3/ticker/price?symbol={self.symbol_pair}"
-        resp = await self._http_client.get(url)
+        resp = await client.get(url)
         if resp.status_code >= 400:
             resp.raise_for_status()
         data = resp.json()
@@ -106,11 +130,9 @@ class TONMarketService:
 
     async def _fetch_coingecko_rest(self) -> float:
         """Fetch latest price from CoinGecko REST API."""
-        if not self._http_client:
-            raise RuntimeError("HTTP client not initialized")
-
+        client = await self._get_client()
         url = "https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd"
-        resp = await self._http_client.get(url)
+        resp = await client.get(url)
         if resp.status_code >= 400:
             resp.raise_for_status()
         data = resp.json()
@@ -131,22 +153,30 @@ class TONMarketService:
         price: Optional[float] = None
         source = "REST"
 
-        # Try Binance REST first (highest liquidity and sub-second updates)
-        try:
-            price = await self._fetch_binance_rest()
-            source = "Binance (REST)"
-            logger.info("REST fallback succeeded via Binance: %.4f", price)
-        except Exception as e:
-            logger.warning("Binance REST fallback failed (%s). Trying CoinGecko fallback...", e)
+        fetch_map = {
+            "tonapi": (self._fetch_tonapi_rest, "TonAPI (REST)"),
+            "binance": (self._fetch_binance_rest, "Binance (REST)"),
+            "coingecko": (self._fetch_coingecko_rest, "CoinGecko (REST)"),
+        }
 
-        # If Binance fails, try CoinGecko REST
-        if price is None:
+        # Build prioritized order based on configured provider
+        if self.provider == "tonapi":
+            order = ["tonapi", "coingecko", "binance"]
+        elif self.provider == "coingecko":
+            order = ["coingecko", "tonapi", "binance"]
+        else:
+            # Default for binance, whitebit, etc.
+            order = ["binance", "tonapi", "coingecko"]
+
+        for p_name in order:
+            fetch_func, src_name = fetch_map[p_name]
             try:
-                price = await self._fetch_coingecko_rest()
-                source = "CoinGecko (REST)"
-                logger.info("REST fallback succeeded via CoinGecko: %.4f", price)
+                price = await fetch_func()
+                source = src_name
+                logger.info("REST fallback succeeded via %s: %.4f", p_name, price)
+                break
             except Exception as e:
-                logger.error("CoinGecko REST fallback failed (%s)", e)
+                logger.warning("REST fallback for %s failed (%s). Trying next provider...", p_name, e)
 
         if price is None:
             raise RuntimeError("All crypto REST fallback endpoints failed")

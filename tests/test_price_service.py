@@ -103,3 +103,58 @@ async def test_price_service_stale_data_detection():
     assert snapshot.get_ton_usdt_freshness(stale_after_seconds=15) == Freshness.DELAYED
     assert snapshot.get_ton_inr_freshness(stale_after_seconds=15) == Freshness.DELAYED
     assert snapshot.get_overall_freshness(stale_after_seconds=15) == Freshness.DELAYED
+
+
+def test_price_service_currency_conversions():
+    """Verify mathematical accuracy of conversions across all assets."""
+    service = PriceService()
+
+    snapshot = PriceSnapshot(
+        ton_usdt=2.0,      # 1 TON = $2.00
+        usd_inr=100.0,     # $1 = ₹100
+        ton_inr=200.0,     # 1 TON = ₹200
+        ton_gram=2000.0,   # 1 TON = 2000 GRAM
+        ton_stars=150.0,   # 1 TON = 150 Stars
+    )
+
+    # 1. Convert 10 TON
+    res_ton = service.convert_currency(10.0, "TON", snapshot)
+    assert res_ton["TON"] == 10.0
+    assert res_ton["USDT"] == 20.0
+    assert res_ton["INR"] == 2000.0
+    assert res_ton["GRAM"] == 20000.0
+    assert res_ton["STARS"] == 1500.0
+
+    # 2. Convert 100 INR -> 0.5 TON
+    res_inr = service.convert_currency(100.0, "INR", snapshot)
+    assert res_inr["TON"] == 0.5
+    assert res_inr["USDT"] == 1.0
+    assert res_inr["GRAM"] == 1000.0
+    assert res_inr["STARS"] == 75.0
+
+    # 3. Convert 10 USDT -> 5 TON
+    res_usdt = service.convert_currency(10.0, "USDT", snapshot)
+    assert res_usdt["TON"] == 5.0
+    assert res_usdt["INR"] == 1000.0
+    assert res_usdt["GRAM"] == 10000.0
+    assert res_usdt["STARS"] == 750.0
+
+    # 4. Convert 1000 GRAM -> 0.5 TON
+    res_gram = service.convert_currency(1000.0, "GRAM", snapshot)
+    assert res_gram["TON"] == 0.5
+    assert res_gram["USDT"] == 1.0
+    assert res_gram["INR"] == 100.0
+    assert res_gram["STARS"] == 75.0
+
+    # 5. Convert 150 STARS -> 1 TON
+    res_stars = service.convert_currency(150.0, "STARS", snapshot)
+    assert res_stars["TON"] == 1.0
+    assert res_stars["USDT"] == 2.0
+    assert res_stars["INR"] == 200.0
+    assert res_stars["GRAM"] == 2000.0
+
+    # 6. Missing rates handled safely
+    empty_snapshot = PriceSnapshot()
+    res_empty = service.convert_currency(10.0, "INR", empty_snapshot)
+    assert res_empty["TON"] is None
+    assert res_empty["USDT"] is None

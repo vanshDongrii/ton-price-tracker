@@ -4,10 +4,13 @@ from datetime import datetime, timezone
 import pytest
 
 from src.bot.formatters import (
+    format_gram,
     format_inr,
     format_stars,
     format_timestamp_full,
     format_timestamp_short,
+    format_timestamp_utc,
+    format_ton,
     format_usdt,
 )
 from src.models.price_snapshot import Freshness, PriceSnapshot
@@ -63,6 +66,25 @@ def test_freshness_badges():
     assert Freshness.UNAVAILABLE.short_label == "🔴 UNAVAILABLE"
 
 
+def test_format_gram():
+    """Verify GRAM formatting."""
+    assert format_gram(2082.75) == "2,082.75 GRAM"
+    assert format_gram(None) == "Rate unavailable"
+
+
+def test_format_ton():
+    """Verify TON precision formatting."""
+    assert format_ton(1.5491) == "1.5491 TON"
+    assert format_ton(None) == "Unavailable"
+
+
+def test_format_timestamp_utc():
+    """Verify clean UTC timestamp string."""
+    utc_dt = datetime(2026, 9, 30, 9, 5, 21, tzinfo=timezone.utc)
+    assert format_timestamp_utc(utc_dt) == "09:05:21 UTC"
+    assert format_timestamp_utc(None) == "N/A"
+
+
 def test_format_current_price_message_delayed_fx():
     """Verify that when FX is stale, INR displays delayed note."""
     from datetime import timedelta
@@ -76,6 +98,7 @@ def test_format_current_price_message_delayed_fx():
         ton_usdt=2.5000,
         usd_inr=90.00,
         ton_inr=225.00,
+        ton_gram=2000.0,
         ton_stars=None,
         ton_usdt_timestamp=now_utc,
         usd_inr_timestamp=stale_fx_ts,
@@ -85,9 +108,10 @@ def test_format_current_price_message_delayed_fx():
     )
 
     msg = format_current_price_message(snapshot, stale_after_seconds=15)
-    assert "🇺🇸 *1 TON = $2.5000 USDT*" in msg
-    assert "🇮🇳 *1 TON ≈ ₹225.00* _(delayed FX)_" in msg
-    assert "⭐ *Stars: Rate unavailable*" in msg
+    assert "1 TON = $2.5000 USDT" in msg
+    assert "1 TON = ₹225.00 INR _(delayed FX)_" in msg
+    assert "1 TON = 2,000.00 GRAM" in msg
+    assert "1 TON = Telegram Stars: Rate unavailable" in msg
 
 
 def test_format_current_price_message_all_unavailable():
@@ -98,14 +122,36 @@ def test_format_current_price_message_all_unavailable():
         ton_usdt=None,
         usd_inr=None,
         ton_inr=None,
+        ton_gram=None,
         ton_stars=None,
         source="Unavailable",
         feed_type="None",
     )
 
     msg = format_current_price_message(snapshot, stale_after_seconds=15)
-    assert "🇺🇸 *USDT: Unavailable*" in msg
-    assert "🇮🇳 *INR: Unavailable*" in msg
-    assert "⭐ *Stars: Rate unavailable*" in msg
+    assert "1 TON = USDT: Unavailable" in msg
+    assert "1 TON = INR: Unavailable" in msg
+    assert "1 TON = GRAM: Unavailable" in msg
+    assert "1 TON = Telegram Stars: Rate unavailable" in msg
     assert "🔴 Price unavailable" in msg
+
+
+def test_format_conversion_message():
+    """Verify conversion message markdown output."""
+    from src.bot.messages import format_conversion_message
+
+    conversions = {
+        "TON": 10.0,
+        "USDT": 15.49,
+        "INR": 1492.50,
+        "GRAM": 20827.50,
+        "STARS": 1192.30,
+    }
+
+    msg = format_conversion_message(10.0, "TON", conversions)
+    assert "💎 *10 TON*" in msg
+    assert "≈ $15.4900 USDT" in msg
+    assert "≈ ₹1,492.50 INR" in msg
+    assert "≈ 20,827.50 GRAM" in msg
+    assert "≈ 1192.30 Stars" in msg
 

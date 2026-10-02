@@ -17,19 +17,23 @@ logger = logging.getLogger(__name__)
 
 
 class StarsRateService:
-    """Service to retrieve legitimate TON -> Telegram Stars conversion rates if available."""
+    """Service to retrieve legitimate TON -> Telegram Stars conversion rates."""
 
     def __init__(
         self,
-        source: str = "none",
+        source: str = "telegram_official",
         api_key: Optional[str] = None,
         custom_api_url: Optional[str] = None,
+        stars_usd_rate: float = 0.013,
+        stars_per_ton: Optional[float] = None,
         api_timeout_seconds: float = 5.0,
         cache_ttl_seconds: int = 300,
     ):
-        self.source = source.lower()
+        self.source = (source or "telegram_official").lower().strip()
         self.api_key = api_key
         self.custom_api_url = custom_api_url
+        self.stars_usd_rate = stars_usd_rate if stars_usd_rate > 0 else 0.013
+        self.stars_per_ton = stars_per_ton
         self.api_timeout_seconds = api_timeout_seconds
         self.cache_ttl_seconds = cache_ttl_seconds
 
@@ -54,18 +58,24 @@ class StarsRateService:
 
     async def get_stars_rate(
         self,
+        ton_usdt: Optional[float] = None,
         force_refresh: bool = False,
     ) -> tuple[Optional[float], Optional[datetime], str]:
         """Retrieve TON -> Telegram Stars rate.
-        
+
         Returns:
             tuple of (stars_per_ton, timestamp_utc, source_name).
             If no verified live rate exists, stars_per_ton is None.
         """
-        # If explicitly disabled or set to none, return None immediately
+        # 1. Check if explicitly disabled
         if self.source in ("", "none", "disabled", "false"):
-            logger.debug("Telegram Stars conversion source is set to '%s' (unavailable by design)", self.source)
+            logger.debug("Telegram Stars conversion source is disabled ('%s')", self.source)
             return None, None, "Unavailable"
+
+        # 2. Check explicit static override if configured
+        if self.stars_per_ton is not None and self.stars_per_ton > 0:
+            now_utc = datetime.now(timezone.utc)
+            return round(self.stars_per_ton, 2), now_utc, "Configured Rate"
 
         cache_key = f"stars_rate_{self.source}"
         if not force_refresh:
@@ -73,7 +83,7 @@ class StarsRateService:
             if cached is not None:
                 return cached
 
-        # If a custom API source is specified
+        # 3. Custom API source
         if self.source == "custom" and self.custom_api_url:
             try:
                 client = await self._get_client()
@@ -86,23 +96,35 @@ class StarsRateService:
                     resp.raise_for_status()
                 data = resp.json()
 
-                # Expecting JSON like {"ton_stars": 125.5} or {"rate": 125.5}
                 rate_val = data.get("ton_stars") or data.get("rate") or data.get("stars")
                 if rate_val is not None:
                     rate = float(rate_val)
                     now_utc = datetime.now(timezone.utc)
-                    res = (rate, now_utc, "Custom API")
+                    res = (round(rate, 2), now_utc, "Custom API")
                     await self._cache.set(cache_key, res, ttl_seconds=float(self.cache_ttl_seconds))
                     return res
             except Exception as e:
                 logger.warning("Custom Stars rate source request failed: %s", e)
 
-        # If configured for Fragment platform
-        if self.source == "fragment":
-            # Fragment uses auction-based purchases for stars packages with TON.
-            # Without authenticated Telegram/Fragment session keys, public rate is not exposed via an open floating API.
-            logger.info("Fragment Stars source configured, but public open ticker API is not available")
-            return None, None, "Fragment"
+        # 4. Telegram Official developer monetization rate ($0.013/Star)
+        if self.source in ("telegram_official", "official", "telegram"):
+            if ton_usdt is not None and ton_usdt > 0:
+                stars_per_ton = round(ton_usdt / self.stars_usd_rate, 2)
+                now_utc = datetime.now(timezone.utc)
+                source_label = f"Telegram Official (${self.stars_usd_rate:.3f}/⭐️)"
+                res = (stars_per_ton, now_utc, source_label)
+                await self._cache.set(cache_key, res, ttl_seconds=float(self.cache_ttl_seconds))
+                return res
+
+        # 5. Fragment purchase rate (~$0.016/Star)
+        if self.source in ("fragment", "fragment_purchase"):
+            purchase_star_usd = 0.016
+            if ton_usdt is not None and ton_usdt > 0:
+                stars_per_ton = round(ton_usdt / purchase_star_usd, 2)
+                now_utc = datetime.now(timezone.utc)
+                res = (stars_per_ton, now_utc, "Fragment Purchase (~$0.016/⭐️)")
+                await self._cache.set(cache_key, res, ttl_seconds=float(self.cache_ttl_seconds))
+                return res
 
         logger.debug("No live Telegram Stars rate available for source: %s", self.source)
         return None, None, "Unavailable"

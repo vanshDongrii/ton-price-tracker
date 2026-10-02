@@ -81,3 +81,34 @@ async def test_stars_rate_custom_http_error():
     rate, ts, src = await service.get_stars_rate(force_refresh=True)
     assert rate is None
     assert ts is None
+
+
+@pytest.mark.asyncio
+async def test_stars_rate_telegram_official():
+    """Verify official Telegram developer rate ($0.013/star) calculation."""
+    service = StarsRateService(source="telegram_official", stars_usd_rate=0.013)
+    # At TON = $1.55 USD, 1.55 / 0.013 = 119.23 Stars
+    rate, ts, src = await service.get_stars_rate(ton_usdt=1.55)
+    assert rate == 119.23
+    assert ts is not None
+    assert "Telegram Official" in src
+
+
+@pytest.mark.asyncio
+async def test_stars_rate_fragment_purchase():
+    """Verify Fragment purchase rate (~$0.016/star) calculation."""
+    service = StarsRateService(source="fragment")
+    # At TON = $1.60 USD, 1.60 / 0.016 = 100.0 Stars
+    rate, ts, src = await service.get_stars_rate(ton_usdt=1.60)
+    assert rate == 100.0
+    assert ts is not None
+    assert "Fragment Purchase" in src
+
+
+@pytest.mark.asyncio
+async def test_stars_rate_static_override():
+    """Verify manual override via stars_per_ton."""
+    service = StarsRateService(source="telegram_official", stars_per_ton=150.0)
+    rate, ts, src = await service.get_stars_rate(ton_usdt=1.55)
+    assert rate == 150.0
+    assert src == "Configured Rate"

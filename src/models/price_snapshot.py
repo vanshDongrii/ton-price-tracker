@@ -39,11 +39,13 @@ class PriceSnapshot:
     ton_usdt: Optional[float] = None
     usd_inr: Optional[float] = None
     ton_inr: Optional[float] = None
+    ton_gram: Optional[float] = None
     ton_stars: Optional[float] = None
 
     ton_usdt_timestamp: Optional[datetime] = None
     usd_inr_timestamp: Optional[datetime] = None
     ton_inr_timestamp: Optional[datetime] = None
+    ton_gram_timestamp: Optional[datetime] = None
     stars_timestamp: Optional[datetime] = None
 
     source: str = "Unknown"
@@ -98,6 +100,21 @@ class PriceSnapshot:
             return Freshness.DELAYED
 
         return Freshness.LIVE
+
+    def get_ton_gram_freshness(self, stale_after_seconds: int = 300, now_utc: Optional[datetime] = None) -> Freshness:
+        """Check freshness of the TON/GRAM rate."""
+        if self.ton_gram is None or self.ton_gram_timestamp is None:
+            return Freshness.UNAVAILABLE
+
+        now = now_utc or datetime.now(timezone.utc)
+        ts = self.ton_gram_timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+
+        age = (now - ts).total_seconds()
+        if age <= stale_after_seconds:
+            return Freshness.LIVE
+        return Freshness.DELAYED
 
     def get_stars_freshness(self, stale_after_seconds: int = 300, now_utc: Optional[datetime] = None) -> Freshness:
         """Check freshness of the Telegram Stars rate."""

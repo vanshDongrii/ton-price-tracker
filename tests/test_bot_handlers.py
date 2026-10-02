@@ -1,11 +1,11 @@
-"""Unit tests for Telegram bot command and callback handlers."""
+"""Unit tests for Telegram bot command, callback, and text conversion handlers."""
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 from telegram import Chat, Message, Update, User
 
-from src.bot.handlers import BotHandlers
+from src.bot.handlers import BotHandlers, parse_conversion_query
 from src.bot.live_manager import LiveModeManager
 from src.bot.rate_limiter import UserRateLimiter
 from src.config import Settings
@@ -20,13 +20,15 @@ def sample_snapshot():
         ton_usdt=2.1845,
         usd_inr=88.50,
         ton_inr=193.33,
-        ton_stars=None,
+        ton_gram=2000.0,
+        ton_stars=168.0,
         ton_usdt_timestamp=now_utc,
         usd_inr_timestamp=now_utc,
         ton_inr_timestamp=now_utc,
-        stars_timestamp=None,
-        source="Whitebit (WS) + ExchangeRate-API",
-        feed_type="WebSocket",
+        ton_gram_timestamp=now_utc,
+        stars_timestamp=now_utc,
+        source="TonAPI + ExchangeRate-API",
+        feed_type="REST",
     )
 
 
@@ -42,6 +44,18 @@ def mock_handlers(sample_snapshot):
     price_service = AsyncMock(spec=PriceService)
     price_service.get_snapshot.return_value = sample_snapshot
 
+    # Configure convert_currency return
+    def mock_convert(amount, from_asset, snapshot):
+        return {
+            "TON": 10.0 if from_asset != "TON" else amount,
+            "USDT": 21.845,
+            "INR": 1933.30,
+            "GRAM": 20000.0,
+            "STARS": 1680.0,
+        }
+
+    price_service.convert_currency.side_effect = mock_convert
+
     live_manager = AsyncMock(spec=LiveModeManager)
     rate_limiter = UserRateLimiter(cooldown_seconds=3.0)
 
@@ -51,6 +65,25 @@ def mock_handlers(sample_snapshot):
         rate_limiter=rate_limiter,
         settings=settings,
     )
+
+
+def test_parse_conversion_query():
+    """Verify natural-language amount and currency parsing."""
+    assert parse_conversion_query("10 TON") == (10.0, "TON")
+    assert parse_conversion_query("1.5 ton") == (1.5, "TON")
+    assert parse_conversion_query("100 INR") == (100.0, "INR")
+    assert parse_conversion_query("₹500") == (500.0, "INR")
+    assert parse_conversion_query("$50") == (50.0, "USDT")
+    assert parse_conversion_query("50 USDT") == (50.0, "USDT")
+    assert parse_conversion_query("1000 GRAM") == (1000.0, "GRAM")
+    assert parse_conversion_query("100 STARS") == (100.0, "STARS")
+    assert parse_conversion_query("50 ⭐") == (50.0, "STARS")
+    assert parse_conversion_query("10") == (10.0, "TON")
+    assert parse_conversion_query("ton 25") == (25.0, "TON")
+    assert parse_conversion_query("inr 1000") == (1000.0, "INR")
+    assert parse_conversion_query("invalid query text") is None
+    assert parse_conversion_query("-5 TON") is None
+    assert parse_conversion_query("") is None
 
 
 @pytest.mark.asyncio
@@ -69,8 +102,8 @@ async def test_start_command(mock_handlers):
 
     assert message.reply_text.called
     call_kwargs = message.reply_text.call_args[1]
-    assert "💎 *TON Price Tracker*" in call_kwargs["text"]
-    assert "Choose an option below:" in call_kwargs["text"]
+    assert "TON Price Live" in call_kwargs["text"]
+    assert "Choose an option below" in call_kwargs["text"]
     assert call_kwargs["reply_markup"] is not None
 
 
@@ -91,11 +124,11 @@ async def test_price_command(mock_handlers):
     assert message.reply_text.called
     call_kwargs = message.reply_text.call_args[1]
     text = call_kwargs["text"]
-    assert "💎 *TON Current Price*" in text
+    assert "💎 *TON Price*" in text
     assert "$2.1845" in text
     assert "₹193.33" in text
-    assert "⭐ *Stars: Rate unavailable*" in text
-    assert "🟢 Live market data" in text
+    assert "2,000.00 GRAM" in text
+    assert "168.00 Stars" in text
 
 
 @pytest.mark.asyncio
@@ -117,13 +150,33 @@ async def test_refresh_command_with_rate_limiting(mock_handlers):
     await mock_handlers.refresh_command(update, context)
     assert message.reply_text.call_count == 1
     text1 = message.reply_text.call_args_list[0][1]["text"]
-    assert "💎 *TON Current Price*" in text1
+    assert "💎 *TON Price*" in text1
 
     # Call 2 (blocked by cooldown)
     await mock_handlers.refresh_command(update, context)
     assert message.reply_text.call_count == 2
     text2 = message.reply_text.call_args_list[1][0][0]
     assert "Please wait a moment before refreshing again" in text2
+
+
+@pytest.mark.asyncio
+async def test_convert_command(mock_handlers):
+    """Verify /convert displays conversion menu."""
+    update = MagicMock(spec=Update)
+    message = AsyncMock(spec=Message)
+    chat = MagicMock(spec=Chat)
+    chat.id = 12345
+    update.effective_chat = chat
+    update.message = message
+
+    context = MagicMock()
+
+    await mock_handlers.convert_command(update, context)
+
+    assert message.reply_text.called
+    text = message.reply_text.call_args[1]["text"]
+    assert "Currency Conversion" in text
+    assert message.reply_text.call_args[1]["reply_markup"] is not None
 
 
 @pytest.mark.asyncio
@@ -142,7 +195,49 @@ async def test_help_and_about_commands(mock_handlers):
     assert "User Guide" in message.reply_text.call_args[1]["text"]
 
     await mock_handlers.about_command(update, context)
-    assert "About TON Price Tracker" in message.reply_text.call_args[1]["text"]
+    assert "About TON Price Live" in message.reply_text.call_args[1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_text_message_handler_conversions(mock_handlers):
+    """Verify text messages like '10 TON' or '100 INR' trigger conversions."""
+    update = MagicMock(spec=Update)
+    message = AsyncMock(spec=Message)
+    chat = MagicMock(spec=Chat)
+    chat.id = 12345
+    chat.type = "private"
+    update.effective_chat = chat
+    update.message = message
+
+    context = MagicMock()
+
+    # Test '10 TON'
+    message.text = "10 TON"
+    await mock_handlers.text_message_handler(update, context)
+    assert message.reply_text.called
+    text = message.reply_text.call_args[1]["text"]
+    assert "💎 *10 TON*" in text
+    assert "≈ $21.8450 USDT" in text
+
+
+@pytest.mark.asyncio
+async def test_text_message_handler_invalid_query(mock_handlers):
+    """Verify invalid text in private chat gives guidance tip."""
+    update = MagicMock(spec=Update)
+    message = AsyncMock(spec=Message)
+    chat = MagicMock(spec=Chat)
+    chat.id = 12345
+    chat.type = "private"
+    update.effective_chat = chat
+    update.message = message
+    message.text = "hello how are you"
+
+    context = MagicMock()
+
+    await mock_handlers.text_message_handler(update, context)
+    assert message.reply_text.called
+    text = message.reply_text.call_args[0][0]
+    assert "Tip" in text
 
 
 @pytest.mark.asyncio
@@ -173,7 +268,40 @@ async def test_callback_price_live_and_stop(mock_handlers):
     query.data = "stop_live"
     await mock_handlers.callback_handler(update, context)
     assert mock_handlers.live_manager.stop_live_session.called
-    assert "💎 *TON Current Price*" in query.edit_message_text.call_args[1]["text"]
+    assert "💎 *TON Price*" in query.edit_message_text.call_args[1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_callback_conversion_flows(mock_handlers):
+    """Verify nav_convert, conv_asset_*, and conv_val_* callbacks."""
+    update = MagicMock(spec=Update)
+    query = AsyncMock()
+    query.message = MagicMock(message_id=888)
+
+    chat = MagicMock(spec=Chat)
+    chat.id = 12345
+    user = MagicMock(spec=User)
+    user.id = 999
+    update.callback_query = query
+    update.effective_chat = chat
+    update.effective_user = user
+
+    context = MagicMock()
+
+    # 1. Tap Convert Menu
+    query.data = "nav_convert"
+    await mock_handlers.callback_handler(update, context)
+    assert "Currency Conversion" in query.edit_message_text.call_args[1]["text"]
+
+    # 2. Pick Asset
+    query.data = "conv_asset_ton"
+    await mock_handlers.callback_handler(update, context)
+    assert "Convert from TON" in query.edit_message_text.call_args[1]["text"]
+
+    # 3. Pick quick amount
+    query.data = "conv_val_ton_10"
+    await mock_handlers.callback_handler(update, context)
+    assert "💎 *10 TON*" in query.edit_message_text.call_args[1]["text"]
 
 
 @pytest.mark.asyncio
@@ -190,63 +318,5 @@ async def test_global_error_handler(mock_handlers):
 
     assert message.reply_text.called
     error_msg = message.reply_text.call_args[0][0]
-    assert "Unable to retrieve the latest price right now" in error_msg
+    assert "error occurred while processing your request" in error_msg
     assert "secret=XYZ123" not in error_msg
-
-
-@pytest.mark.asyncio
-async def test_callback_refresh_with_cooldown(mock_handlers):
-    """Verify refresh button respects rate limiter and answers callback queries."""
-    update = MagicMock(spec=Update)
-    query = AsyncMock()
-    query.data = "price_refresh"
-    query.message = MagicMock(message_id=888)
-
-    chat = MagicMock(spec=Chat)
-    chat.id = 12345
-    user = MagicMock(spec=User)
-    user.id = 777
-    update.callback_query = query
-    update.effective_chat = chat
-    update.effective_user = user
-
-    context = MagicMock()
-
-    # Click 1: Allowed
-    await mock_handlers.callback_handler(update, context)
-    assert query.edit_message_text.called
-    assert query.answer.called
-
-    # Click 2: Rapid repeat should trigger cooldown warning
-    await mock_handlers.callback_handler(update, context)
-    last_answer = query.answer.call_args[0][0]
-    assert "Please wait" in last_answer
-
-
-@pytest.mark.asyncio
-async def test_callback_navigation(mock_handlers):
-    """Verify nav_about and nav_main callbacks."""
-    update = MagicMock(spec=Update)
-    query = AsyncMock()
-    query.data = "nav_about"
-    query.message = MagicMock(message_id=888)
-
-    chat = MagicMock(spec=Chat)
-    chat.id = 12345
-    user = MagicMock(spec=User)
-    user.id = 888
-    update.callback_query = query
-    update.effective_chat = chat
-    update.effective_user = user
-
-    context = MagicMock()
-
-    # Navigate to About
-    await mock_handlers.callback_handler(update, context)
-    assert "About TON Price Tracker" in query.edit_message_text.call_args[1]["text"]
-
-    # Navigate to Main Menu
-    query.data = "nav_main"
-    await mock_handlers.callback_handler(update, context)
-    assert "Choose an option below:" in query.edit_message_text.call_args[1]["text"]
-

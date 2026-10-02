@@ -15,6 +15,8 @@ from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
     CommandHandler,
+    MessageHandler,
+    filters,
 )
 
 from src.bot.handlers import BotHandlers
@@ -73,11 +75,15 @@ def create_application(
     app.add_handler(CommandHandler("start", handlers.start_command))
     app.add_handler(CommandHandler("price", handlers.price_command))
     app.add_handler(CommandHandler("refresh", handlers.refresh_command))
+    app.add_handler(CommandHandler("convert", handlers.convert_command))
     app.add_handler(CommandHandler("help", handlers.help_command))
     app.add_handler(CommandHandler("about", handlers.about_command))
 
     # Register Callback Query Handler
     app.add_handler(CallbackQueryHandler(handlers.callback_handler))
+
+    # Register Natural Text Handler for direct amount conversion (e.g. '10 TON', '100 INR')
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.text_message_handler))
 
     # Register Error Handler
     app.add_error_handler(handlers.error_handler)

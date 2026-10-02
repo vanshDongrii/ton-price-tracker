@@ -55,10 +55,28 @@ class Settings(BaseSettings):
         description="Cache TTL in seconds for FX rates (default: 5 minutes)",
     )
 
+    # GRAM Token
+    gram_contract_address: str = Field(
+        default="EQC47093oX5Xhb0xuk2lCr2RhS8rj-vul61u4W2UH5ORmG_O",
+        description="Contract address of the GRAM jetton on TON",
+    )
+    gram_cache_ttl_seconds: int = Field(
+        default=60,
+        description="Cache TTL in seconds for TON <-> GRAM rates",
+    )
+
     # Telegram Stars
     stars_rate_source: str = Field(
-        default="none",
-        description="Source for TON -> Stars rate (none, fragment, custom)",
+        default="telegram_official",
+        description="Source for TON -> Stars rate (telegram_official, fragment, custom, none)",
+    )
+    stars_usd_rate: float = Field(
+        default=0.013,
+        description="Official Telegram developer withdrawal rate in USD per Star ($0.013)",
+    )
+    stars_per_ton: Optional[float] = Field(
+        default=None,
+        description="Optional manual override for Stars per 1 TON rate",
     )
     stars_rate_api_key: Optional[str] = Field(
         default=None,
@@ -117,7 +135,21 @@ class Settings(BaseSettings):
     @field_validator("stars_rate_source", mode="before")
     @classmethod
     def normalize_stars_source(cls, v: str) -> str:
-        return (v or "none").strip().lower()
+        return (v or "telegram_official").strip().lower()
+
+    @field_validator("stars_usd_rate", mode="before")
+    @classmethod
+    def normalize_stars_usd_rate(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return 0.013
+        return float(v)
+
+    @field_validator("stars_per_ton", mode="before")
+    @classmethod
+    def normalize_stars_per_ton(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return float(v)
 
     @field_validator("log_level", mode="before")
     @classmethod

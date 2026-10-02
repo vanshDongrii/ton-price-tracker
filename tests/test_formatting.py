@@ -37,7 +37,8 @@ def test_format_inr():
 
 def test_format_stars():
     """Verify Stars formatting adheres to honesty rules."""
-    assert format_stars(25.5) == "25.50 Stars"
+    assert format_stars(25.0) == "25 Stars"
+    assert format_stars(25.5) == "26 Stars"
     assert format_stars(None) == "Rate unavailable"
 
 
@@ -153,5 +154,5 @@ def test_format_conversion_message():
     assert "≈ $15.4900 USDT" in msg
     assert "≈ ₹1,492.50 INR" in msg
     assert "≈ 20,827.50 GRAM" in msg
-    assert "≈ 1192.30 Stars" in msg
+    assert "≈ 1,192 Stars" in msg
 

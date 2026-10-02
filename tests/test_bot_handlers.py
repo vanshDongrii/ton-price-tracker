@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from telegram import Chat, Message, Update, User
 
-from src.bot.handlers import BotHandlers, parse_conversion_query
+from src.bot.handlers import BotHandlers, parse_conversion_query, parse_ton_input
 from src.bot.live_manager import LiveModeManager
 from src.bot.rate_limiter import UserRateLimiter
 from src.config import Settings
@@ -44,17 +44,9 @@ def mock_handlers(sample_snapshot):
     price_service = AsyncMock(spec=PriceService)
     price_service.get_snapshot.return_value = sample_snapshot
 
-    # Configure convert_currency return
-    def mock_convert(amount, from_asset, snapshot):
-        return {
-            "TON": 10.0 if from_asset != "TON" else amount,
-            "USDT": 21.845,
-            "INR": 1933.30,
-            "GRAM": 20000.0,
-            "STARS": 1680.0,
-        }
-
-    price_service.convert_currency.side_effect = mock_convert
+    # Use real convert_currency logic on sample snapshot
+    real_service = PriceService()
+    price_service.convert_currency.side_effect = real_service.convert_currency
 
     live_manager = AsyncMock(spec=LiveModeManager)
     rate_limiter = UserRateLimiter(cooldown_seconds=3.0)
@@ -70,13 +62,17 @@ def mock_handlers(sample_snapshot):
 def test_parse_conversion_query():
     """Verify natural-language amount and currency parsing."""
     assert parse_conversion_query("10 TON") == (10.0, "TON")
+    assert parse_conversion_query("100 ton") == (100.0, "TON")
     assert parse_conversion_query("1.5 ton") == (1.5, "TON")
     assert parse_conversion_query("100 INR") == (100.0, "INR")
+    assert parse_conversion_query("500 inr") == (500.0, "INR")
     assert parse_conversion_query("₹500") == (500.0, "INR")
     assert parse_conversion_query("$50") == (50.0, "USDT")
     assert parse_conversion_query("50 USDT") == (50.0, "USDT")
     assert parse_conversion_query("1000 GRAM") == (1000.0, "GRAM")
     assert parse_conversion_query("100 STARS") == (100.0, "STARS")
+    assert parse_conversion_query("1k stars") == (1000.0, "STARS")
+    assert parse_conversion_query("2.5k stars") == (2500.0, "STARS")
     assert parse_conversion_query("50 ⭐") == (50.0, "STARS")
     assert parse_conversion_query("10") == (10.0, "TON")
     assert parse_conversion_query("ton 25") == (25.0, "TON")
@@ -86,9 +82,36 @@ def test_parse_conversion_query():
     assert parse_conversion_query("") is None
 
 
+def test_parse_ton_input():
+    """Verify numeric TON amount parsing and strict validation."""
+    assert parse_ton_input("10") == 10.0
+    assert parse_ton_input("10 TON") == 10.0
+    assert parse_ton_input("10 ton") == 10.0
+    assert parse_ton_input("10.5") == 10.5
+    assert parse_ton_input("0.25 TON") == 0.25
+    assert parse_ton_input("0.25 ton") == 0.25
+    assert parse_ton_input("10,5") == 10.5
+    assert parse_ton_input("10,5 TON") == 10.5
+    assert parse_ton_input("TON 10") == 10.0
+    assert parse_ton_input("  10.5  ") == 10.5
+
+    # Invalid inputs
+    assert parse_ton_input("hello") is None
+    assert parse_ton_input("TON") is None
+    assert parse_ton_input("-10") is None
+    assert parse_ton_input("-10 TON") is None
+    assert parse_ton_input("0") is None
+    assert parse_ton_input("0.0") is None
+    assert parse_ton_input("0 TON") is None
+    assert parse_ton_input("") is None
+    assert parse_ton_input("   ") is None
+    assert parse_ton_input("10 USDT") is None
+    assert parse_ton_input("999999999999999999999999999999") is None
+
+
 @pytest.mark.asyncio
 async def test_start_command(mock_handlers):
-    """Verify /start displays welcome message and main menu."""
+    """Verify /start displays Pavel Kurs welcome message with currency selection keyboard."""
     update = MagicMock(spec=Update)
     message = AsyncMock(spec=Message)
     chat = MagicMock(spec=Chat)
@@ -102,14 +125,16 @@ async def test_start_command(mock_handlers):
 
     assert message.reply_text.called
     call_kwargs = message.reply_text.call_args[1]
-    assert "TON Price Live" in call_kwargs["text"]
-    assert "Choose an option below" in call_kwargs["text"]
-    assert call_kwargs["reply_markup"] is not None
+    text = call_kwargs["text"]
+    assert "Pavel Kurs" in text
+    assert "TON/GRAM, USDT, Stars, and inr" in text
+    assert "select a currency using the button below" in text
+    assert call_kwargs.get("reply_markup") is not None
 
 
 @pytest.mark.asyncio
 async def test_price_command(mock_handlers):
-    """Verify /price displays formatted prices."""
+    """Verify /price displays formatted prices without keyboards."""
     update = MagicMock(spec=Update)
     message = AsyncMock(spec=Message)
     chat = MagicMock(spec=Chat)
@@ -128,12 +153,13 @@ async def test_price_command(mock_handlers):
     assert "$2.1845" in text
     assert "₹193.33" in text
     assert "2,000.00 GRAM" in text
-    assert "168.00 Stars" in text
+    assert "168 Stars" in text
+    assert call_kwargs.get("reply_markup") is None
 
 
 @pytest.mark.asyncio
 async def test_refresh_command_with_rate_limiting(mock_handlers):
-    """Verify /refresh executes, but blocks rapid second call."""
+    """Verify /refresh executes without keyboard, but blocks rapid second call."""
     update = MagicMock(spec=Update)
     message = AsyncMock(spec=Message)
     chat = MagicMock(spec=Chat)
@@ -149,8 +175,10 @@ async def test_refresh_command_with_rate_limiting(mock_handlers):
     # Call 1 (allowed)
     await mock_handlers.refresh_command(update, context)
     assert message.reply_text.call_count == 1
-    text1 = message.reply_text.call_args_list[0][1]["text"]
+    call_kwargs = message.reply_text.call_args_list[0][1]
+    text1 = call_kwargs["text"]
     assert "💎 *TON Price*" in text1
+    assert call_kwargs.get("reply_markup") is None
 
     # Call 2 (blocked by cooldown)
     await mock_handlers.refresh_command(update, context)
@@ -161,7 +189,7 @@ async def test_refresh_command_with_rate_limiting(mock_handlers):
 
 @pytest.mark.asyncio
 async def test_convert_command(mock_handlers):
-    """Verify /convert displays conversion menu."""
+    """Verify /convert prompts user with currency selection keyboard."""
     update = MagicMock(spec=Update)
     message = AsyncMock(spec=Message)
     chat = MagicMock(spec=Chat)
@@ -174,14 +202,15 @@ async def test_convert_command(mock_handlers):
     await mock_handlers.convert_command(update, context)
 
     assert message.reply_text.called
-    text = message.reply_text.call_args[1]["text"]
-    assert "Currency Conversion" in text
-    assert message.reply_text.call_args[1]["reply_markup"] is not None
+    call_kwargs = message.reply_text.call_args[1]
+    text = call_kwargs["text"]
+    assert "Pavel Kurs" in text
+    assert call_kwargs.get("reply_markup") is not None
 
 
 @pytest.mark.asyncio
 async def test_help_and_about_commands(mock_handlers):
-    """Verify /help and /about output informative content."""
+    """Verify /help and /about output informative content without keyboards."""
     update = MagicMock(spec=Update)
     message = AsyncMock(spec=Message)
     chat = MagicMock(spec=Chat)
@@ -192,116 +221,160 @@ async def test_help_and_about_commands(mock_handlers):
     context = MagicMock()
 
     await mock_handlers.help_command(update, context)
-    assert "User Guide" in message.reply_text.call_args[1]["text"]
+    help_kwargs = message.reply_text.call_args[1]
+    assert "User Guide" in help_kwargs["text"]
+    assert help_kwargs.get("reply_markup") is None
 
     await mock_handlers.about_command(update, context)
-    assert "About TON Price Live" in message.reply_text.call_args[1]["text"]
+    about_kwargs = message.reply_text.call_args[1]
+    assert "About TON Price Live" in about_kwargs["text"]
+    assert about_kwargs.get("reply_markup") is None
 
 
 @pytest.mark.asyncio
 async def test_text_message_handler_conversions(mock_handlers):
-    """Verify text messages like '10 TON' or '100 INR' trigger conversions."""
+    """Verify numeric text inputs trigger conversion in expected clean format."""
     update = MagicMock(spec=Update)
     message = AsyncMock(spec=Message)
     chat = MagicMock(spec=Chat)
     chat.id = 12345
-    chat.type = "private"
     update.effective_chat = chat
     update.message = message
 
     context = MagicMock()
 
-    # Test '10 TON'
+    # 1. Test '10'
+    message.text = "10"
+    await mock_handlers.text_message_handler(update, context)
+    assert message.reply_text.called
+    call_kwargs = message.reply_text.call_args[1]
+    text = call_kwargs["text"]
+    expected_10 = (
+        "10 TON =\n"
+        "USDT: 21.8450\n"
+        "GRAM: 20,000.00\n"
+        "STARS: 1,680\n"
+        "INR: ₹1,933.30"
+    )
+    assert text == expected_10
+    assert call_kwargs.get("reply_markup") is None
+
+    # 2. Test '10 TON'
     message.text = "10 TON"
     await mock_handlers.text_message_handler(update, context)
-    assert message.reply_text.called
-    text = message.reply_text.call_args[1]["text"]
-    assert "💎 *10 TON*" in text
-    assert "≈ $21.8450 USDT" in text
+    call_kwargs = message.reply_text.call_args[1]
+    assert call_kwargs["text"] == expected_10
+    assert call_kwargs.get("reply_markup") is None
+
+    # 3. Test '10.5'
+    message.text = "10.5"
+    await mock_handlers.text_message_handler(update, context)
+    call_kwargs = message.reply_text.call_args[1]
+    assert "10.5 TON =" in call_kwargs["text"]
+    assert call_kwargs.get("reply_markup") is None
+
+    # 4. Test '0.25 TON'
+    message.text = "0.25 TON"
+    await mock_handlers.text_message_handler(update, context)
+    call_kwargs = message.reply_text.call_args[1]
+    assert "0.25 TON =" in call_kwargs["text"]
+    assert call_kwargs.get("reply_markup") is None
+
+    # 5. Test '500 inr'
+    message.text = "500 inr"
+    await mock_handlers.text_message_handler(update, context)
+    call_kwargs = message.reply_text.call_args[1]
+    assert "500 INR =" in call_kwargs["text"]
+    assert "TON:" in call_kwargs["text"]
+
+    # 6. Test '1k stars'
+    message.text = "1k stars"
+    await mock_handlers.text_message_handler(update, context)
+    call_kwargs = message.reply_text.call_args[1]
+    assert "1,000 STARS =" in call_kwargs["text"]
+    assert "TON:" in call_kwargs["text"]
 
 
 @pytest.mark.asyncio
-async def test_text_message_handler_invalid_query(mock_handlers):
-    """Verify invalid text in private chat gives guidance tip."""
+async def test_text_message_handler_invalid_inputs(mock_handlers):
+    """Verify invalid inputs safely return guidance message without crashing."""
     update = MagicMock(spec=Update)
     message = AsyncMock(spec=Message)
     chat = MagicMock(spec=Chat)
     chat.id = 12345
-    chat.type = "private"
     update.effective_chat = chat
     update.message = message
-    message.text = "hello how are you"
 
     context = MagicMock()
+    expected_error = "Please enter a valid positive amount and currency."
+
+    invalid_cases = ["hello", "-10", "0", "0.0", "-5 TON", "random text"]
+
+    for invalid_text in invalid_cases:
+        message.text = invalid_text
+        await mock_handlers.text_message_handler(update, context)
+        assert message.reply_text.called
+        reply = message.reply_text.call_args[0][0]
+        assert expected_error in reply
+
+
+@pytest.mark.asyncio
+async def test_text_message_handler_api_failure(mock_handlers):
+    """Verify error message when price snapshot is unavailable."""
+    update = MagicMock(spec=Update)
+    message = AsyncMock(spec=Message)
+    chat = MagicMock(spec=Chat)
+    chat.id = 12345
+    update.effective_chat = chat
+    update.message = message
+    message.text = "10 TON"
+
+    context = MagicMock()
+
+    # Case 1: ton_usdt is None
+    unavailable_snapshot = PriceSnapshot(
+        ton_usdt=None,
+        usd_inr=None,
+        ton_inr=None,
+        ton_gram=None,
+        ton_stars=None,
+        source="Unavailable",
+        feed_type="None",
+    )
+    mock_handlers.price_service.get_snapshot.return_value = unavailable_snapshot
 
     await mock_handlers.text_message_handler(update, context)
     assert message.reply_text.called
-    text = message.reply_text.call_args[0][0]
-    assert "Tip" in text
+    assert "temporarily unavailable" in message.reply_text.call_args[0][0]
+
+    # Case 2: price_service throws an exception
+    mock_handlers.price_service.get_snapshot.side_effect = RuntimeError("API timeout")
+    await mock_handlers.text_message_handler(update, context)
+    assert "temporarily unavailable" in message.reply_text.call_args[0][0]
 
 
 @pytest.mark.asyncio
-async def test_callback_price_live_and_stop(mock_handlers):
-    """Verify 'price_live' and 'stop_live' callbacks."""
+async def test_callback_handler_currency_selection(mock_handlers):
+    """Verify inline currency buttons answer and prompt user for amount."""
     update = MagicMock(spec=Update)
     query = AsyncMock()
-    query.data = "price_live"
-    query.message = MagicMock(message_id=888)
+    query.data = "conv_asset_stars"
+    message = AsyncMock(spec=Message)
+    query.message = message
 
     chat = MagicMock(spec=Chat)
     chat.id = 12345
-    user = MagicMock(spec=User)
-    user.id = 999
     update.callback_query = query
     update.effective_chat = chat
-    update.effective_user = user
 
     context = MagicMock()
 
-    # Trigger Live Mode
     await mock_handlers.callback_handler(update, context)
-    assert mock_handlers.live_manager.start_live_session.called
-    assert query.edit_message_text.called
-    assert "💎 *TON Live Price*" in query.edit_message_text.call_args[1]["text"]
-
-    # Trigger Stop Live
-    query.data = "stop_live"
-    await mock_handlers.callback_handler(update, context)
-    assert mock_handlers.live_manager.stop_live_session.called
-    assert "💎 *TON Price*" in query.edit_message_text.call_args[1]["text"]
-
-
-@pytest.mark.asyncio
-async def test_callback_conversion_flows(mock_handlers):
-    """Verify nav_convert, conv_asset_*, and conv_val_* callbacks."""
-    update = MagicMock(spec=Update)
-    query = AsyncMock()
-    query.message = MagicMock(message_id=888)
-
-    chat = MagicMock(spec=Chat)
-    chat.id = 12345
-    user = MagicMock(spec=User)
-    user.id = 999
-    update.callback_query = query
-    update.effective_chat = chat
-    update.effective_user = user
-
-    context = MagicMock()
-
-    # 1. Tap Convert Menu
-    query.data = "nav_convert"
-    await mock_handlers.callback_handler(update, context)
-    assert "Currency Conversion" in query.edit_message_text.call_args[1]["text"]
-
-    # 2. Pick Asset
-    query.data = "conv_asset_ton"
-    await mock_handlers.callback_handler(update, context)
-    assert "Convert from TON" in query.edit_message_text.call_args[1]["text"]
-
-    # 3. Pick quick amount
-    query.data = "conv_val_ton_10"
-    await mock_handlers.callback_handler(update, context)
-    assert "💎 *10 TON*" in query.edit_message_text.call_args[1]["text"]
+    assert query.answer.called
+    assert message.reply_text.called
+    reply = message.reply_text.call_args[1]["text"]
+    assert "Selected: ⭐ Stars" in reply
+    assert "1k stars" in reply
 
 
 @pytest.mark.asyncio
@@ -320,3 +393,4 @@ async def test_global_error_handler(mock_handlers):
     error_msg = message.reply_text.call_args[0][0]
     assert "error occurred while processing your request" in error_msg
     assert "secret=XYZ123" not in error_msg
+

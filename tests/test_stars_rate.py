@@ -96,13 +96,13 @@ async def test_stars_rate_telegram_official():
 
 @pytest.mark.asyncio
 async def test_stars_rate_fragment_purchase():
-    """Verify Fragment purchase rate (~$0.016/star) calculation."""
-    service = StarsRateService(source="fragment")
-    # At TON = $1.60 USD, 1.60 / 0.016 = 100.0 Stars
-    rate, ts, src = await service.get_stars_rate(ton_usdt=1.60)
+    """Verify Fragment official purchase rate ($0.015/star) calculation."""
+    service = StarsRateService(source="fragment", stars_usd_rate=0.015)
+    # At TON = $1.50 USD, 1.50 / 0.015 = 100.0 Stars
+    rate, ts, src = await service.get_stars_rate(ton_usdt=1.50)
     assert rate == 100.0
     assert ts is not None
-    assert "Fragment Purchase" in src
+    assert "Fragment" in src
 
 
 @pytest.mark.asyncio

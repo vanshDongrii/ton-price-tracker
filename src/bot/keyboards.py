@@ -3,6 +3,22 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 
+def get_start_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for selecting a currency below the /start welcome message."""
+    keyboard = [
+        [
+            InlineKeyboardButton("💎 TON", callback_data="conv_asset_ton"),
+            InlineKeyboardButton("💵 USDT", callback_data="conv_asset_usdt"),
+            InlineKeyboardButton("🇮🇳 INR", callback_data="conv_asset_inr"),
+        ],
+        [
+            InlineKeyboardButton("🪙 GRAM", callback_data="conv_asset_gram"),
+            InlineKeyboardButton("⭐ Stars", callback_data="conv_asset_stars"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     """Main menu navigation keyboard."""
     keyboard = [

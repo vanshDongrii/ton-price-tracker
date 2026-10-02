@@ -54,10 +54,10 @@ def format_usdt(amount: Optional[float]) -> str:
 
 
 def format_stars(amount: Optional[float]) -> str:
-    """Format Telegram Stars or return 'Rate unavailable'."""
+    """Format Telegram Stars as whole integer units or return 'Rate unavailable'."""
     if amount is None:
         return "Rate unavailable"
-    return f"{amount:.2f} Stars"
+    return f"{int(round(amount)):,} Stars"
 
 
 def format_gram(amount: Optional[float]) -> str:

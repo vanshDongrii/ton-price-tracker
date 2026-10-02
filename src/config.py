@@ -67,12 +67,12 @@ class Settings(BaseSettings):
 
     # Telegram Stars
     stars_rate_source: str = Field(
-        default="telegram_official",
-        description="Source for TON -> Stars rate (telegram_official, fragment, custom, none)",
+        default="fragment",
+        description="Source for TON -> Stars rate (fragment, telegram_official, custom, none)",
     )
     stars_usd_rate: float = Field(
-        default=0.013,
-        description="Official Telegram developer withdrawal rate in USD per Star ($0.013)",
+        default=0.015,
+        description="Telegram Stars purchase rate in USD per Star ($0.015 on Fragment)",
     )
     stars_per_ton: Optional[float] = Field(
         default=None,
@@ -135,13 +135,13 @@ class Settings(BaseSettings):
     @field_validator("stars_rate_source", mode="before")
     @classmethod
     def normalize_stars_source(cls, v: str) -> str:
-        return (v or "telegram_official").strip().lower()
+        return (v or "fragment").strip().lower()
 
     @field_validator("stars_usd_rate", mode="before")
     @classmethod
     def normalize_stars_usd_rate(cls, v):
         if v is None or (isinstance(v, str) and not v.strip()):
-            return 0.013
+            return 0.015
         return float(v)
 
     @field_validator("stars_per_ton", mode="before")
